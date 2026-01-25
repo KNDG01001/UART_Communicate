@@ -6,6 +6,8 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 
 이 프로젝트는 STM32F103RBTx 마이크로컨트롤러의 내부 기준 전압을 주기적으로 측정하고, UART 통신을 통해 시리얼 모니터로 데이터를 전송합니다. 전원 공급 안정성 모니터링, 디버깅, 또는 교육 목적으로 활용할 수 있습니다.
 
+📚 **[프로젝트 상세 문서 (Notion)](https://www.notion.so/Uart-communicate-2f388056fa6a806cbde3e6a4b4f986bd?source=copy_link)**
+
 ## 🛠️ 하드웨어 사양
 
 - **MCU**: STM32F103RBTx
