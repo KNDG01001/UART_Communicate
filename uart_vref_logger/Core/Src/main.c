@@ -19,6 +19,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -46,6 +49,18 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+// UART RX (1-byte interrupt)
+static uint8_t rx_xh;
+
+#define CLI_BUF_SZ 64
+static char cli_buf[CLI_BUF_SZ];
+static uint32_t cli_len = 0;
+static volatile uint8_t cli_line_ready = 0;
+
+// Stream control
+static uint8_t stream_on = 0;
+static uint32_t stream_period_ms = 1000;
+static uint32_t last_stream_ms =  0;
 
 /* USER CODE END PV */
 
@@ -60,6 +75,65 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static uint32_t read_vref_raw(void){
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 10);
+	uint32_t v = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
+	return v;
+}
+
+static void uart_print(const char *s) {
+	HAL_UART_Transmit(&huart2, (uint8_t*)s, (uint16_t)strlen(s), 100);
+}
+
+static void cli_handle_line(const char *line){
+	if(strcmp(line, "help") == 0){
+		uart_print(
+				"Commands: \r\n"
+				"  help\r\n"
+				"  adc read\r\n"
+				"  stream start\r\n"
+				"  stream stop\r\n"
+				"  rate <ms>\r\n"
+				);
+		return;
+	}
+
+	if(strcmp(line, "adc read")==0){
+		uint32_t adc  = read_vref_raw();
+		char out[64];
+		int n = snprintf(out, sizeof(out), "VREF_RAW=%lu\r\n", adc);
+		HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
+		return;
+	}
+
+	if(strcmp(line, "stream start")==0){
+		stream_on = 1;
+		last_stream_ms = HAL_GetTick();
+		uart_print("Ok stream on\r\n");
+		return;
+	}
+
+	if(strcmp(line, "stream stop")==0){
+		stream_on = 0;
+		uart_print("OK Stream off\r\n");
+		return;
+	}
+
+	if(strncmp(line, "rate ", 5)==0) {
+		uint32_t ms = (uint32_t)atoi(&line[5]);
+		if(ms < 10 || ms > 5000) {
+			uart_print("ERR rate must be 10..5000 ms \r\n");
+		} else {
+			stream_period_ms = ms;
+			uart_print("OK rate set\r\n");
+		}
+		return;
+	}
+
+	uart_print("ERR unknown command\r\n");
+}
 
 /* USER CODE END 0 */
 
@@ -96,7 +170,10 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   const char msg[] = "BOOT OK\r\n";
+  const char prompt[] = "> ";
   HAL_UART_Transmit(&huart2, (uint8_t*)msg, sizeof(msg)-1, 100);
+  HAL_UART_Transmit(&huart2, (uint8_t*)prompt, sizeof(prompt)-1, 100);
+  HAL_UART_Receive_IT(&huart2, &rx_xh, 1);
 
   uint32_t adc = 0;
   char buf[64];
@@ -107,15 +184,23 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	  HAL_ADC_Start(&hadc1);
-	  HAL_ADC_PollForConversion(&hadc1, 10);
-	  adc = HAL_ADC_GetValue(&hadc1);
-	  HAL_ADC_Stop(&hadc1);
+	  if (cli_line_ready) {
+	    cli_line_ready = 0;
+	    cli_handle_line(cli_buf);
+	    uart_print("> ");
+	  }
 
-	  int n = snprintf(buf, sizeof(buf), "VREF_RAW=%lu\r\n", adc);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buf, n, 100);
+	  if (stream_on) {
+	    uint32_t now = HAL_GetTick();
+	    if ((now - last_stream_ms) >= stream_period_ms) {
+	      last_stream_ms = now;
+	      uint32_t v = read_vref_raw();
 
-	  HAL_Delay(1000);
+	      char out[64];
+	      int n = snprintf(out, sizeof(out), "S,%lu,%lu\r\n", now, v);
+	      HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
+	    }
+	  }
 
     /* USER CODE BEGIN 3 */
   }
@@ -291,6 +376,35 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2) {
+
+    // 에코 (입력 확인용)
+    HAL_UART_Transmit(&huart2, &rx_xh, 1, 10);
+
+    if (rx_xh == '\r' || rx_xh == '\n') {
+      cli_buf[cli_len] = '\0';
+      cli_len = 0;
+      cli_line_ready = 1;
+
+      const char nl[] = "\r\n";
+      HAL_UART_Transmit(&huart2, (uint8_t*)nl, sizeof(nl)-1, 10);
+    }
+    else if (rx_xh == '\b' || rx_xh == 0x7F) {
+      if (cli_len > 0) cli_len--;
+    }
+    else {
+      if (cli_len < CLI_BUF_SZ - 1) {
+        cli_buf[cli_len++] = (char)rx_xh;
+      }
+    }
+
+    // 다음 바이트 수신 재등록(필수)
+    HAL_UART_Receive_IT(&huart2, &rx_xh, 1);
+  }
+}
+
 
 /* USER CODE END 4 */
 
