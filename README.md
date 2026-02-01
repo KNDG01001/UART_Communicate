@@ -29,20 +29,63 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | PA14 | SWD | 디버그 인터페이스 (SWCLK) |
 | PC13 | GPIO EXTI | 푸시 버튼 (B1) |
 
-## 📦 주요 기능
+## 💻 CLI 명령어
+
+시리얼 터미널에서 다음 명령어를 사용할 수 있습니다:
+
+| 명령어 | 설명 |
+|--------|------|
+| `help` | 사용 가능한 명령어 목록 표시 |
+| `adc read` | 현재 VREF ADC 값을 즉시 읽어서 출력 |
+| `stream start` | 자동 스트리밍 시작 (설정된 주기로 데이터 전송) |
+| `stream stop` | 자동 스트리밍 정지 |
+| `rate <ms>` | 스트리밍 주기 설정 (10~5000ms) |
+
+### 사용 예시
+
+```
+> help
+Commands: 
+  help
+  adc read
+  stream start
+  stream stop
+  rate <ms>
+> adc read
+VREF_RAW=1492
+> rate 500
+OK rate set
+> stream start
+Ok stream on
+S,1234,1492
+S,1734,1491
+S,2234,1493
+...
+> stream stop
+OK Stream off
+```
+
+## 🚀 빌드 및 실행
 
 1. **내부 기준 전압 측정**
    - ADC1을 사용하여 STM32의 내부 VREFINT 값을 읽어옵니다
    - 샘플링 시간: 239.5 사이클
    - 12-bit 해상도 (0-4095)
 
-2. **UART 통신**
-   - Baud Rate: 115200
-   - 부팅 시 "BOOT OK" 메시지 전송
-   - 1초 간격으로 `VREF_RAW=<value>` 형식으로 ADC 값 전송
+2. **대화형 CLI (Command Line Interface)**
+   - UART를 통한 양방향 통신
+   - 실시간 명령어 처리 및 응답
+   - 인터럽트 기반 UART 수신으로 안정적인 입력 처리
 
-3. **실시간 모니터링**
-   - 시리얼 터미널에서 VREF 값을 실시간으로 확인 가능
+3. **스트리밍 제어**
+   - 시작/정지 제어 가능
+   - 스트리밍 주기 설정 (10~5000ms)
+   - 타임스탬프 포함 데이터 출력 (`S,<tick_ms>,<adc_value>`)
+
+4. **UART 통신**
+   - Baud Rate: 115200
+   - 부팅 시 "BOOT OK" 메시지 및 프롬프트(`>`) 표시
+   - 에코 기능으로 입력 확인 가능
 
 ## 🚀 빌드 및 실행
 
@@ -77,23 +120,81 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
    - 시리얼 터미널 프로그램 실행 (Tera Term, PuTTY 등)
    - 설정: 115200 baud, 8N1, No flow control
 
-2. **출력 확인**
+2. **대화형 CLI 사용**
    ```
    BOOT OK
-   VREF_RAW=1234
-   VREF_RAW=1235
-   VREF_RAW=1233
+   > help
+   Commands: 
+     help
+     adc read
+     stream start
+     stream stop
+     rate <ms>
+   > stream start
+   Ok stream on
+   S,1000,1492
+   S,2000,1491
    ...
    ```
 
+## 🐍 Python 로거 도구
+
+`tools/logger.py`는 STM32에서 전송되는 스트림 데이터를 자동으로 CSV 파일에 기록하는 Python 스크립트입니다.
+
+### 사용 방법
+
+1. **필수 패키지 설치**
+   ```bash
+   pip install pyserial
+   ```
+
+2. **포트 설정 확인**
+   - `tools/logger.py` 파일을 열고 `PORT` 변수를 사용 중인 COM 포트로 설정
+   ```python
+   PORT = "COM7"  # 본인의 포트 번호로 변경
+   ```
+
+3. **스크립트 실행**
+   ```bash
+   python tools/logger.py
+   ```
+
+4. **보드에서 스트리밍 시작**
+   - 시리얼 터미널에서 `stream start` 명령어 입력
+   - 또는 별도 터미널에서 명령어 전송
+
+5. **데이터 수집**
+   - 스크립트는 `S,<tick_ms>,<adc_value>` 형식의 데이터만 수집
+   - `log_YYYYMMDD_HHMMSS.csv` 파일에 자동 저장
+   - Ctrl+C로 종료
+
+### 출력 예시
+
+생성된 CSV 파일:
+```csv
+tick_ms,vref_raw
+1000,1492
+2000,1491
+3000,1493
+4000,1492
+```
+
 ## 📊 출력 데이터 해석
 
-- **VREF_RAW 값**: 12-bit ADC 값 (0-4095 범위)
-- STM32F103의 VREFINT는 일반적으로 약 1.2V
-- 실제 전압 계산 공식:
+### ADC 값 (`VREF_RAW` 또는 스트림 데이터)
+- **범위**: 12-bit ADC 값 (0-4095)
+- **VREFINT**: STM32F103의 내부 기준 전압은 일반적으로 약 1.2V
+- **실제 전압 계산 공식**:
   ```
   VDDA = 1.2V × 4095 / ADC_Value
   ```
+
+### 스트림 출력 형식
+```
+S,<tick_ms>,<adc_value>
+```
+- `tick_ms`: HAL_GetTick()로부터의 밀리초 타임스탬프
+- `adc_value`: VREFINT ADC 측정값
 
 ## 🔧 개발 환경
 

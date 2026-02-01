@@ -1,0 +1,16 @@
+# Log files
+*.csv
+log_*.csv
+
+# IDE metadata
+.metadata/
+.settings/
+
+# Build outputs
+Debug/
+Release/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
