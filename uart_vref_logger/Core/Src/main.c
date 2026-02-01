@@ -51,6 +51,7 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 // UART RX (1-byte interrupt)
 static uint8_t rx_xh;
+static uint32_t typing_deadline_ms = 0;
 
 #define CLI_BUF_SZ 64
 static char cli_buf[CLI_BUF_SZ];
@@ -192,7 +193,7 @@ int main(void)
 
 	  if (stream_on) {
 	    uint32_t now = HAL_GetTick();
-	    if ((now - last_stream_ms) >= stream_period_ms) {
+	    if (now > typing_deadline_ms && (now - last_stream_ms) >= stream_period_ms) {
 	      last_stream_ms = now;
 	      uint32_t v = read_vref_raw();
 
@@ -382,6 +383,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
     // 에코 (입력 확인용)
     HAL_UART_Transmit(&huart2, &rx_xh, 1, 10);
+    typing_deadline_ms = HAL_GetTick() + 300;
 
     if (rx_xh == '\r' || rx_xh == '\n') {
       cli_buf[cli_len] = '\0';
