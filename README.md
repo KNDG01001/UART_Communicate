@@ -36,10 +36,11 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | 명령어 | 설명 |
 |--------|------|
 | `help` | 사용 가능한 명령어 목록 표시 |
-| `adc read` | 현재 VREF ADC 값을 즉시 읽어서 출력 |
+| `adc read` | 현재 VREF ADC 값과 VDDA 전압을 즉시 읽어서 출력 |
 | `stream start` | 자동 스트리밍 시작 (설정된 주기로 데이터 전송) |
 | `stream stop` | 자동 스트리밍 정지 |
 | `rate <ms>` | 스트리밍 주기 설정 (10~5000ms) |
+| `stats` | 스트리밍 통계 정보 출력 (시퀀스 번호, 전송 라인 수 등) |
 
 ### 사용 예시
 
@@ -52,17 +53,19 @@ Commands:
   stream stop
   rate <ms>
 > adc read
-VREF_RAW=1492
+VREF_RAW=1492 VDDA_mV=3300
 > rate 500
 OK rate set
 > stream start
 Ok stream on
-S,1234,1492
-S,1734,1491
-S,2234,1493
+S,0,1234,1492,3300
+S,1,1734,1491,3301
+S,2,2234,1493,3299
 ...
 > stream stop
 OK Stream off
+> stats
+stream_on=0 rate_ms=500 seq=3 lines=3
 ```
 
 ## 🚀 빌드 및 실행
@@ -80,7 +83,8 @@ OK Stream off
 3. **스트리밍 제어**
    - 시작/정지 제어 가능
    - 스트리밍 주기 설정 (10~5000ms)
-   - 타임스탬프 포함 데이터 출력 (`S,<tick_ms>,<adc_value>`)
+   - 시퀀스 번호를 통한 패킷 누락 감지
+   - 타임스탬프 포함 데이터 출력 (`S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>`)
 
 4. **UART 통신**
    - Baud Rate: 115200
@@ -132,8 +136,8 @@ OK Stream off
      rate <ms>
    > stream start
    Ok stream on
-   S,1000,1492
-   S,2000,1491
+   S,0,1000,1492,3300
+   S,1,2000,1491,3301
    ...
    ```
 
@@ -164,37 +168,48 @@ OK Stream off
    - 또는 별도 터미널에서 명령어 전송
 
 5. **데이터 수집**
-   - 스크립트는 `S,<tick_ms>,<adc_value>` 형식의 데이터만 수집
+   - 스크립트는 `S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>` 형식의 데이터만 수집
+   - 시퀀스 번호를 통해 누락된 패킷 자동 감지
    - `log_YYYYMMDD_HHMMSS.csv` 파일에 자동 저장
+   - 실시간으로 수신된 라인 수와 누락된 패킷 수 표시
    - Ctrl+C로 종료
 
 ### 출력 예시
 
+실행 중 콘솔 출력:
+```
+[+] Opening COM7 @ 115200
+[+] Writing to log_20260209_024500.csv
+[+] lines=150, missing=0
+```
+
 생성된 CSV 파일:
 ```csv
-tick_ms,vref_raw
-1000,1492
-2000,1491
-3000,1493
-4000,1492
+seq,tick_ms,vref_raw,vdda_mv
+0,1000,1492,3300
+1,2000,1491,3301
+2,3000,1493,3299
+3,4000,1492,3300
 ```
 
 ## 📊 출력 데이터 해석
 
 ### ADC 값 (`VREF_RAW` 또는 스트림 데이터)
 - **범위**: 12-bit ADC 값 (0-4095)
-- **VREFINT**: STM32F103의 내부 기준 전압은 일반적으로 약 1.2V
-- **실제 전압 계산 공식**:
+- **VREFINT**: STM32F103의 내부 기준 전압, 일반적으로 약 1.2V (1200mV)
+- **VDDA 전압 계산 공식**:
   ```
-  VDDA = 1.2V × 4095 / ADC_Value
+  VDDA (mV) = 1200 × 4095 / VREF_RAW
   ```
 
 ### 스트림 출력 형식
 ```
-S,<tick_ms>,<adc_value>
+S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>
 ```
+- `seq`: 시퀀스 번호 (패킷 누락 감지용, 0부터 시작)
 - `tick_ms`: HAL_GetTick()로부터의 밀리초 타임스탬프
-- `adc_value`: VREFINT ADC 측정값
+- `vref_raw`: VREFINT ADC 측정값 (0-4095)
+- `vdda_mv`: 계산된 VDDA 전압 (밀리볼트 단위)
 
 ## 🔧 개발 환경
 
