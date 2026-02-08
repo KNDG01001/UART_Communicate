@@ -63,6 +63,9 @@ static uint8_t stream_on = 0;
 static uint32_t stream_period_ms = 1000;
 static uint32_t last_stream_ms =  0;
 
+static uint32_t stream_seq = 0;
+static uint32_t stream_lines = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -97,6 +100,7 @@ static void cli_handle_line(const char *line){
 				"  stream start\r\n"
 				"  stream stop\r\n"
 				"  rate <ms>\r\n"
+				"  stats \r\n"
 				);
 		return;
 	}
@@ -112,6 +116,8 @@ static void cli_handle_line(const char *line){
 	if(strcmp(line, "stream start")==0){
 		stream_on = 1;
 		last_stream_ms = HAL_GetTick();
+		stream_seq = 0;
+		stream_lines = 0;
 		uart_print("Ok stream on\r\n");
 		return;
 	}
@@ -130,6 +136,18 @@ static void cli_handle_line(const char *line){
 			stream_period_ms = ms;
 			uart_print("OK rate set\r\n");
 		}
+		return;
+	}
+
+	if(strcmp(line, "stats") == 0) {
+		char out[128];
+		int n = snprintf(out, sizeof(out),
+				"stream_on=%lu rate_ms=%lu seq=%lu lines=%lu\r\n",
+				(uint32_t)stream_on,
+				(uint32_t)stream_period_ms,
+				(uint32_t)stream_seq,
+				(uint32_t)stream_lines);
+		HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
 		return;
 	}
 
@@ -198,8 +216,10 @@ int main(void)
 	      uint32_t v = read_vref_raw();
 
 	      char out[64];
-	      int n = snprintf(out, sizeof(out), "S,%lu,%lu\r\n", now, v);
+	      int n = snprintf(out, sizeof(out), "S,%lu,%lu,%lu\r\n", (uint32_t)stream_seq, (uint32_t)now, (uint32_t)v);
 	      HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
+	      stream_seq++;
+	      stream_lines++;
 	    }
 	  }
 
