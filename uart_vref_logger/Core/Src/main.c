@@ -35,6 +35,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define VREFINT_MV_TYP 1200u
+#define ADC_MAX 4095u
 
 /* USER CODE END PD */
 
@@ -91,6 +93,11 @@ static void uart_print(const char *s) {
 	HAL_UART_Transmit(&huart2, (uint8_t*)s, (uint16_t)strlen(s), 100);
 }
 
+static uint32_t calc_vdda_mv(uint32_t vref_raw){
+	if(vref_raw == 0) return 0;
+	return (VREFINT_MV_TYP * ADC_MAX) / vref_raw;
+}
+
 static void cli_handle_line(const char *line){
 	if(strcmp(line, "help") == 0){
 		uart_print(
@@ -106,9 +113,10 @@ static void cli_handle_line(const char *line){
 	}
 
 	if(strcmp(line, "adc read")==0){
-		uint32_t adc  = read_vref_raw();
+		uint32_t raw = read_vref_raw();
+		uint32_t vdda = calc_vdda_mv(raw);
 		char out[64];
-		int n = snprintf(out, sizeof(out), "VREF_RAW=%lu\r\n", adc);
+		int n = snprintf(out, sizeof(out), "VREF_RAW=%lu VDDA_mV=%lu\r\n", (uint32_t)raw, (uint32_t)vdda);
 		HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
 		return;
 	}
@@ -154,6 +162,8 @@ static void cli_handle_line(const char *line){
 	uart_print("ERR unknown command\r\n");
 }
 
+
+
 /* USER CODE END 0 */
 
 /**
@@ -194,8 +204,6 @@ int main(void)
   HAL_UART_Transmit(&huart2, (uint8_t*)prompt, sizeof(prompt)-1, 100);
   HAL_UART_Receive_IT(&huart2, &rx_xh, 1);
 
-  uint32_t adc = 0;
-  char buf[64];
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -213,10 +221,11 @@ int main(void)
 	    uint32_t now = HAL_GetTick();
 	    if (now > typing_deadline_ms && (now - last_stream_ms) >= stream_period_ms) {
 	      last_stream_ms = now;
-	      uint32_t v = read_vref_raw();
+	      uint32_t raw = read_vref_raw();
+	      uint32_t vdda = calc_vdda_mv(raw);
 
 	      char out[64];
-	      int n = snprintf(out, sizeof(out), "S,%lu,%lu,%lu\r\n", (uint32_t)stream_seq, (uint32_t)now, (uint32_t)v);
+	      int n = snprintf(out, sizeof(out), "S,%lu,%lu,%lu,%lu\r\n", (uint32_t)stream_seq, (uint32_t)now, (uint32_t)raw, (uint32_t)vdda);
 	      HAL_UART_Transmit(&huart2, (uint8_t*)out, n, 100);
 	      stream_seq++;
 	      stream_lines++;
