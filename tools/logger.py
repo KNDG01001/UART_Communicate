@@ -19,7 +19,7 @@ def main():
     print(f"[+] Writing to {OUT}")
     with open(OUT, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["seq", "tick_ms", "vref_raw"])
+        w.writerow(["seq", "tick_ms", "vref_raw", "vdda_mv"])
 
         lines = 0
         missing = 0
@@ -36,18 +36,19 @@ def main():
             except Exception:
                 continue
 
-            # 스트리밍 라인만 수집: S,<seq>,<tick_ms>,<adc>
+            # 스트리밍 라인만 수집: S,<seq>,<tick_ms>,<raw>,<vdda>
             if not line.startswith("S,"):
                 continue
 
             parts = line.split(",")
-            if len(parts) != 4:
+            if len(parts) != 5:
                 continue
 
             try:
                 seq = int(parts[1])
                 tick = int(parts[2])
                 vref = int(parts[3])
+                vdda = int(parts[4])
             except ValueError:
                 continue
 
@@ -57,7 +58,7 @@ def main():
 
             last_seq = seq
 
-            w.writerow([seq, tick, vref])
+            w.writerow([seq, tick, vref, vdda])
             lines += 1
 
             # 진행 상황 출력(1초마다)
