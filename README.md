@@ -252,6 +252,44 @@ uart_vref_logger/
 └── uart_vref_logger.ioc  # STM32CubeMX 설정 파일
 ```
 
+## 📝 변경 이력
+
+### 2026-02-14
+- **[Docs]** TX Ring Buffer 기능 문서화 추가
+  - 512바이트 순환 버퍼 설명
+  - `stats` 출력 형식 상세 설명 추가 (tx_pending, tx_ovf)
+- **[Refactor]** main.c 코드 포맷팅 개선
+  - 일관된 들여쓰기 및 코드 스타일 적용
+  - 가독성 향상 (기능 변경 없음)
+
+### 2026-02-08
+- **[Feature]** 시퀀스 번호 누락 감지 기능 추가
+  - logger.py에 패킷 누락 카운터 구현
+  - 실시간 누락 감지 및 리포팅
+
+### 2026-01-31
+- **[Docs]** Git 커밋 및 푸시 작업
+
+### 2026-01-25
+- **[Docs]** README에 Notion 프로젝트 문서 링크 추가
+
+### 2026-01-24
+- **[Feature]** USB CDC 디버깅 및 설정
+- **[Refactor]** Git 원격 디렉토리 이름 변경
+
+### 2026-01-23
+- **[Feature]** STM32 USB CDC 가상 COM 포트 설정
+
+### 초기 버전
+- **[Feature]** 내부 기준 전압(VREF) ADC 측정 기능
+- **[Feature]** UART CLI 명령어 시스템
+  - help, adc read, stream start/stop, rate, stats
+- **[Feature]** 주기적 데이터 스트리밍 기능
+- **[Feature]** TX Ring Buffer (512바이트 비블로킹 UART)
+- **[Feature]** Python 로거 도구 (logger.py)
+  - 자동 CSV 저장
+  - 시퀀스 번호 추적
+
 ## 🤝 기여
 
 이슈 제보 및 풀 리퀘스트를 환영합니다!
