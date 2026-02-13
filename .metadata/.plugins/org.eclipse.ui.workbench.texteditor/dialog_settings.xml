@@ -3,6 +3,15 @@
 	<item key="hasShownOverlayPopupBefore" value="true"/>
 	<item key="replaceBarOpen" value="false"/>
 	<list key="searchhistory">
+		<item value="calc_vdda_mv"/>
+		<item value="stats"/>
+		<item value="HAL_UART_RxCpltCallback()"/>
+		<item value="Recive_IT"/>
+		<item value="ReciveIT"/>
+		<item value="rate"/>
+		<item value="HAL_UART_Receive_IT(&amp;huart2, &amp;rx_xh, 1);"/>
+		<item value="HAL_UART_Transmit"/>
+		<item value="bakc"/>
 		<item value="main"/>
 	</list>
 </section>
