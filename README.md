@@ -40,7 +40,7 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | `stream start` | 자동 스트리밍 시작 (설정된 주기로 데이터 전송) |
 | `stream stop` | 자동 스트리밍 정지 |
 | `rate <ms>` | 스트리밍 주기 설정 (10~5000ms) |
-| `stats` | 스트리밍 통계 정보 출력 (시퀀스 번호, 전송 라인 수 등) |
+| `stats` | 스트리밍 통계 정보 출력 (시퀀스 번호, 전송 라인 수, TX 버퍼 상태 등) |
 
 ### 사용 예시
 
@@ -65,7 +65,7 @@ S,2,2234,1493,3299
 > stream stop
 OK Stream off
 > stats
-stream_on=0 rate_ms=500 seq=3 lines=3
+stream_on=0 rate_ms=500 seq=3 lines=3 tx_pending=0 tx_ovf=0
 ```
 
 ## 🚀 빌드 및 실행
@@ -86,7 +86,15 @@ stream_on=0 rate_ms=500 seq=3 lines=3
    - 시퀀스 번호를 통한 패킷 누락 감지
    - 타임스탬프 포함 데이터 출력 (`S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>`)
 
-4. **UART 통신**
+4. **TX Ring Buffer (Non-blocking UART)**
+   - 512바이트 순환 버퍼를 사용한 비블로킹 UART 전송
+   - 인터럽트 기반 바이트 단위 전송으로 메인 루프 블로킹 방지
+   - 버퍼 오버플로우 감지 및 카운팅 (`tx_ovf`)
+   - `stats` 명령어로 버퍼 상태 모니터링 가능
+     - `tx_pending`: 버퍼에 대기 중인 바이트 수
+     - `tx_ovf`: 버퍼 오버플로우 발생 횟수
+
+5. **UART 통신**
    - Baud Rate: 115200
    - 부팅 시 "BOOT OK" 메시지 및 프롬프트(`>`) 표시
    - 에코 기능으로 입력 확인 가능
@@ -210,6 +218,18 @@ S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>
 - `tick_ms`: HAL_GetTick()로부터의 밀리초 타임스탬프
 - `vref_raw`: VREFINT ADC 측정값 (0-4095)
 - `vdda_mv`: 계산된 VDDA 전압 (밀리볼트 단위)
+
+### Stats 출력 형식
+```
+stream_on=<0|1> rate_ms=<period> seq=<count> lines=<count> tx_pending=<bytes> tx_ovf=<count>
+```
+- `stream_on`: 스트리밍 활성화 상태 (0=정지, 1=동작)
+- `rate_ms`: 현재 설정된 스트리밍 주기 (밀리초)
+- `seq`: 현재까지 전송된 총 시퀀스 번호
+- `lines`: 현재까지 전송된 총 라인 수
+- `tx_pending`: TX 링 버퍼에 대기 중인 바이트 수
+- `tx_ovf`: TX 버퍼 오버플로우 발생 횟수 (버퍼 포화 카운터)
+
 
 ## 🔧 개발 환경
 
