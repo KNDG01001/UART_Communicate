@@ -3,6 +3,11 @@
 	<item key="hasShownOverlayPopupBefore" value="true"/>
 	<item key="replaceBarOpen" value="false"/>
 	<list key="searchhistory">
+		<item value="HAL_UART_Transmit"/>
+		<item value="uart_write"/>
+		<item value="HAL_UART_Tx"/>
+		<item value="HAL_UART_TxCp"/>
+		<item value="HAL_UART_TxCpltC"/>
 		<item value="calc_vdda_mv"/>
 		<item value="stats"/>
 		<item value="HAL_UART_RxCpltCallback()"/>
@@ -10,7 +15,6 @@
 		<item value="ReciveIT"/>
 		<item value="rate"/>
 		<item value="HAL_UART_Receive_IT(&amp;huart2, &amp;rx_xh, 1);"/>
-		<item value="HAL_UART_Transmit"/>
 		<item value="bakc"/>
 		<item value="main"/>
 	</list>

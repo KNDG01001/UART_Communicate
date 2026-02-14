@@ -50,6 +50,17 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+//Stream stats
+static uint32_t st_min_raw = 0xFFFFFFFFu;
+static uint32_t st_max_raw = 0;
+static uint64_t st_sum_raw = 0;
+static uint32_t st_cnt_raw = 0;
+
+static uint32_t st_min_vdda = 0xFFFFFFFFu;
+static uint32_t st_max_vdda = 0;
+static uint64_t st_sum_vdda = 0;
+static uint32_t st_cnt_vdda = 0;
+
 // UART RX (1-byte interrupt)
 static uint8_t rx_xh;
 static uint32_t typing_deadline_ms = 0;
@@ -124,6 +135,23 @@ static void uart_tx_kick(void) {
   }
 }
 
+static void stats_reset(void) {
+	st_min_raw = 0xFFFFFFFFu; st_max_raw = 0; st_sum_raw = 0; st_cnt_raw = 0;
+	st_min_vdda = 0xFFFFFFFFu; st_max_vdda = 0; st_sum_vdda = 0; st_cnt_vdda = 0;
+}
+
+static void stats_update(uint32_t raw, uint32_t vdda) {
+	if(raw < st_min_raw) st_min_raw = raw;
+	if(raw > st_max_raw) st_max_raw = raw;
+	st_sum_raw += raw;
+	st_cnt_raw++;
+
+	if(vdda < st_min_vdda) st_min_vdda = vdda;
+	if(vdda > st_max_vdda) st_max_vdda = vdda;
+	st_sum_vdda += vdda;
+	st_cnt_vdda++;
+}
+
 static void uart_write(const uint8_t *data, uint16_t len) {
   __disable_irq();
   for (uint16_t i = 0; i < len; i++) {
@@ -143,8 +171,22 @@ static uint32_t read_vref_raw(void) {
   return v;
 }
 
+static uint32_t read_vref_raw_avg(uint8_t n) {
+	uint32_t sum = 0;
+	if(n == 0) return 0;
+
+	for(uint8_t i = 0; i < n; i++){
+		HAL_ADC_Start(&hadc1);
+		HAL_ADC_PollForConversion(&hadc1, 10);
+		sum += HAL_ADC_GetValue(&hadc1);
+		HAL_ADC_Stop(&hadc1);
+	}
+
+	return (sum + (n/2)) / n;
+}
+
 static void uart_print(const char *s) {
-  uart_write((const uint8_t *)s, (uint16_t)strlen(s));
+  uart_write((const uint8_t*)s, (uint16_t)strlen(s));
 }
 
 static uint32_t calc_vdda_mv(uint32_t vref_raw) {
@@ -161,12 +203,15 @@ static void cli_handle_line(const char *line) {
                "  stream start\r\n"
                "  stream stop\r\n"
                "  rate <ms>\r\n"
-               "  stats \r\n");
+               "  stats \r\n"
+    		   "  reset stats\r\n"
+    		   "  avg <N>\r\n");
+
     return;
   }
 
   if (strcmp(line, "adc read") == 0) {
-    uint32_t raw = read_vref_raw();
+    uint32_t raw = read_vref_raw_avg(16);
     uint32_t vdda = calc_vdda_mv(raw);
     char out[64];
     int n = snprintf(out, sizeof(out), "VREF_RAW=%lu VDDA_mV=%lu\r\n",
@@ -180,6 +225,9 @@ static void cli_handle_line(const char *line) {
     last_stream_ms = HAL_GetTick();
     stream_seq = 0;
     stream_lines = 0;
+
+    stats_reset();
+
     uart_print("Ok stream on\r\n");
     return;
   }
@@ -202,19 +250,85 @@ static void cli_handle_line(const char *line) {
   }
 
   if (strcmp(line, "stats") == 0) {
-    uint16_t pending = tx_rb_count();
-    char out[128];
-    int n = snprintf(out, sizeof(out),
-                     "stream_on=%lu rate_ms=%lu seq=%lu lines=%lu "
-                     "tx_pending=%u tx_ovf=%lu\r\n",
-                     (uint32_t)stream_on, (uint32_t)stream_period_ms,
-                     (uint32_t)stream_seq, (uint32_t)stream_lines,
-                     (unsigned)pending, (uint32_t)tx_ovf);
-    uart_write((uint8_t *)out, (uint16_t)n);
-    return;
+	  char out[200];
+
+	  uint32_t pending = tx_rb_count();
+
+	  uint32_t avg_raw = (st_cnt_raw ? (uint32_t)(st_sum_raw / st_cnt_raw) : 0);
+	  uint32_t avg_vdda = (st_cnt_vdda ? (uint32_t)(st_sum_vdda / st_cnt_vdda) : 0);
+
+	  int n = snprintf(out, sizeof(out),
+			  "stream_on=%lu rate_ms=%lu seq=%lu lines=%lu tx_pending=%u tx_ovf=%lu\r\n"
+			  "RAW:   cnt=%lu min=%lu max=%lu avg=%lu\r\n"
+			  "VDDA:  cnt=%lu min=%lu max=%lu avg=%lu\r\n",
+			  (unsigned long)stream_on,
+			  (unsigned long)stream_period_ms,
+			  (unsigned long)stream_seq,
+			  (unsigned long)stream_lines,
+			  (unsigned)pending,
+			  (unsigned long)tx_ovf,
+			  (unsigned long)st_cnt_raw,
+			  (unsigned long)(st_min_raw==0xFFFFFFFFu?0:st_min_raw),
+			  (unsigned long)st_max_raw,
+			  (unsigned long)avg_raw,
+			  (unsigned long)st_cnt_vdda,
+			  (unsigned long)(st_min_vdda==0xFFFFFFFFu?0:st_min_vdda),
+			  (unsigned long)st_max_vdda,
+			  (unsigned long)avg_vdda);
+
+	  uart_write((uint8_t*)out, (uint16_t)n);
+	  return;
+  }
+
+  if(strcmp(line, "reset stats") == 0){
+	  stats_reset();
+	  uart_print("OK stats reset\r\n");
+	  return;
+  }
+
+  if(strncmp(line, "avg ", 4) == 0) {
+	  uint32_t N = (uint32_t)atoi(&line[4]);
+	  if(N < 1 || N > 500) {
+		  uart_print("ERR avg N must be 1..500\r\n");
+		  return;
+	  }
+
+	  uint64_t sum_raw = 0;
+	  uint64_t sum_vdda = 0;
+	  uint32_t min_raw = 0xFFFFFFFFu, max_raw = 0;
+	  uint32_t min_vdda = 0xFFFFFFFFu, max_vdda = 0;
+
+	  for(uint32_t i = 0; i < N; i++){
+		  uint32_t raw = read_vref_raw();
+		  uint32_t vdda = calc_vdda_mv(raw);
+
+		  sum_raw += raw;
+		  sum_vdda += vdda;
+		  if(raw < min_raw) min_raw = raw;
+		  if(raw > max_raw) max_raw = raw;
+		  if(vdda < min_vdda) min_vdda = vdda;
+		  if(vdda > max_vdda) max_vdda = vdda;
+
+		  HAL_Delay(2);
+	  }
+
+	  uint32_t avg_raw = (uint32_t)(sum_raw / N);
+	  uint32_t avg_vdda = (uint32_t)(sum_vdda / N);
+
+	  char out[160];
+	  int n = snprintf(out, sizeof(out),
+			  "AVG N=%lu\r\n"
+			  "RAW:  min=%lu max=%lu avg=%lu\r\n"
+			  "VDDA: min=%lu max=%lu avg=%lu\r\n",
+			  (unsigned long)N,
+			  (unsigned long)min_raw, (unsigned long)max_raw, (unsigned long)avg_raw,
+			  (unsigned long)min_vdda, (unsigned long)max_vdda, (unsigned long)avg_vdda);
+	  uart_write((uint8_t*)out, (uint16_t)n);
+	  return;
   }
 
   uart_print("ERR unknown command\r\n");
+  return;
 }
 
 /* USER CODE END 0 */
@@ -274,8 +388,10 @@ int main(void) {
       if (now > typing_deadline_ms &&
           (now - last_stream_ms) >= stream_period_ms) {
         last_stream_ms = now;
-        uint32_t raw = read_vref_raw();
+        uint32_t raw = read_vref_raw_avg(16);
         uint32_t vdda = calc_vdda_mv(raw);
+
+        stats_update(raw, vdda);
 
         char out[64];
         int n = snprintf(out, sizeof(out), "S,%lu,%lu,%lu,%lu\r\n",
@@ -462,7 +578,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
       cli_line_ready = 1;
 
       const char nl[] = "\r\n";
-      uart_write((const uint8_t *)nl, (uint16_t)(sizeof(nl) - 1));
+      uart_write((const uint8_t*)nl, (uint16_t)(sizeof(nl) - 1));
     } else if (rx_xh == '\b' || rx_xh == 0x7F) {
       if (cli_len > 0)
         cli_len--;

@@ -1,10 +1,10 @@
-01:09:10 **** Incremental Build of configuration Debug for project uart_vref_logger ****
+00:05:32 **** Incremental Build of configuration Debug for project uart_vref_logger ****
 make -j12 all 
 arm-none-eabi-size  uart_vref_logger.elf 
    text	   data	    bss	    dec	    hex	filename
-  16664	     96	   2640	  19400	   4bc8	uart_vref_logger.elf
+  19068	    104	   2672	  21844	   5554	uart_vref_logger.elf
 Finished building: default.size.stdout
  
 
-01:09:10 Build Finished. 0 errors, 0 warnings. (took 195ms)
+00:05:33 Build Finished. 0 errors, 0 warnings. (took 201ms)
 

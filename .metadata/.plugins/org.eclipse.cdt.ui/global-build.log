@@ -1,4 +1,4 @@
-01:08:45 **** Incremental Build of configuration Debug for project uart_vref_logger ****
+00:04:49 **** Incremental Build of configuration Debug for project uart_vref_logger ****
 make -j12 all 
 arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m3 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F103xB -c -I../Core/Inc -I../Drivers/STM32F1xx_HAL_Driver/Inc -I../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F1xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfloat-abi=soft -mthumb -o "Core/Src/main.o"
 arm-none-eabi-gcc -o "uart_vref_logger.elf" @"objects.list"   -mcpu=cortex-m3 -T"C:\Users\Sunbi\Desktop\stm32\uart_vref_logger\STM32F103RBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="uart_vref_logger.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
@@ -7,15 +7,22 @@ Finished building target: uart_vref_logger.elf
 arm-none-eabi-size  uart_vref_logger.elf 
 arm-none-eabi-objdump -h -S uart_vref_logger.elf  > "uart_vref_logger.list"
    text	   data	    bss	    dec	    hex	filename
-  16664	     96	   2640	  19400	   4bc8	uart_vref_logger.elf
+  19068	    104	   2672	  21844	   5554	uart_vref_logger.elf
 Finished building: default.size.stdout
  
 Finished building: uart_vref_logger.list
  
-01:09:10 **** Incremental Build of configuration Debug for project uart_vref_logger ****
+00:05:03 **** Incremental Build of configuration Debug for project uart_vref_logger ****
 make -j12 all 
 arm-none-eabi-size  uart_vref_logger.elf 
    text	   data	    bss	    dec	    hex	filename
-  16664	     96	   2640	  19400	   4bc8	uart_vref_logger.elf
+  19068	    104	   2672	  21844	   5554	uart_vref_logger.elf
+Finished building: default.size.stdout
+ 
+00:05:32 **** Incremental Build of configuration Debug for project uart_vref_logger ****
+make -j12 all 
+arm-none-eabi-size  uart_vref_logger.elf 
+   text	   data	    bss	    dec	    hex	filename
+  19068	    104	   2672	  21844	   5554	uart_vref_logger.elf
 Finished building: default.size.stdout
  

@@ -36,11 +36,13 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | 명령어 | 설명 |
 |--------|------|
 | `help` | 사용 가능한 명령어 목록 표시 |
-| `adc read` | 현재 VREF ADC 값과 VDDA 전압을 즉시 읽어서 출력 |
+| `adc read` | 현재 VREF ADC 값과 VDDA 전압을 즉시 읽어서 출력 (16회 평균) |
 | `stream start` | 자동 스트리밍 시작 (설정된 주기로 데이터 전송) |
 | `stream stop` | 자동 스트리밍 정지 |
 | `rate <ms>` | 스트리밍 주기 설정 (10~5000ms) |
-| `stats` | 스트리밍 통계 정보 출력 (시퀀스 번호, 전송 라인 수, TX 버퍼 상태 등) |
+| `stats` | 스트리밍 통계 정보 출력 (시퀀스, 라인 수, TX 버퍼, RAW/VDDA min/max/avg) |
+| `reset stats` | 통계 데이터 초기화 |
+| `avg <N>` | N회 샘플링 후 RAW/VDDA의 min/max/avg 출력 (1~500) |
 
 ### 사용 예시
 
@@ -52,6 +54,9 @@ Commands:
   stream start
   stream stop
   rate <ms>
+  stats
+  reset stats
+  avg <N>
 > adc read
 VREF_RAW=1492 VDDA_mV=3300
 > rate 500
@@ -66,6 +71,12 @@ S,2,2234,1493,3299
 OK Stream off
 > stats
 stream_on=0 rate_ms=500 seq=3 lines=3 tx_pending=0 tx_ovf=0
+RAW:   cnt=3 min=1491 max=1493 avg=1492
+VDDA:  cnt=3 min=3299 max=3301 avg=3300
+> avg 10
+AVG N=10
+RAW:  min=1490 max=1494 avg=1492
+VDDA: min=3298 max=3302 avg=3300
 ```
 
 ## 🚀 빌드 및 실행
@@ -222,6 +233,8 @@ S,<seq>,<tick_ms>,<vref_raw>,<vdda_mv>
 ### Stats 출력 형식
 ```
 stream_on=<0|1> rate_ms=<period> seq=<count> lines=<count> tx_pending=<bytes> tx_ovf=<count>
+RAW:   cnt=<count> min=<value> max=<value> avg=<value>
+VDDA:  cnt=<count> min=<value> max=<value> avg=<value>
 ```
 - `stream_on`: 스트리밍 활성화 상태 (0=정지, 1=동작)
 - `rate_ms`: 현재 설정된 스트리밍 주기 (밀리초)
@@ -229,6 +242,18 @@ stream_on=<0|1> rate_ms=<period> seq=<count> lines=<count> tx_pending=<bytes> tx
 - `lines`: 현재까지 전송된 총 라인 수
 - `tx_pending`: TX 링 버퍼에 대기 중인 바이트 수
 - `tx_ovf`: TX 버퍼 오버플로우 발생 횟수 (버퍼 포화 카운터)
+- `RAW cnt/min/max/avg`: VREFINT RAW 값의 샘플 수, 최소값, 최대값, 평균값
+- `VDDA cnt/min/max/avg`: VDDA 전압(mV)의 샘플 수, 최소값, 최대값, 평균값
+
+### Avg 출력 형식
+```
+AVG N=<count>
+RAW:  min=<value> max=<value> avg=<value>
+VDDA: min=<value> max=<value> avg=<value>
+```
+- `N`: 요청한 샘플링 횟수
+- `RAW min/max/avg`: VREFINT RAW 값의 최소값, 최대값, 평균값
+- `VDDA min/max/avg`: VDDA 전압(mV)의 최소값, 최대값, 평균값
 
 
 ## 🔧 개발 환경
@@ -253,6 +278,17 @@ uart_vref_logger/
 ```
 
 ## 📝 변경 이력
+
+### 2026-02-15
+- **[Feature]** 통계 추적 기능 추가
+  - RAW 및 VDDA 값의 min/max/avg 실시간 추적
+  - `stream start` 시 자동 통계 초기화
+  - `stats` 명령어 출력에 상세 통계 정보 포함
+- **[Feature]** 새로운 CLI 명령어 추가
+  - `reset stats`: 통계 데이터 수동 초기화
+  - `avg <N>`: N회 샘플링 후 즉시 통계 출력 (1~500회)
+- **[Enhancement]** `adc read` 명령어 개선
+  - 단일 샘플에서 16회 평균으로 변경하여 정확도 향상
 
 ### 2026-02-14
 - **[Docs]** TX Ring Buffer 기능 문서화 추가
