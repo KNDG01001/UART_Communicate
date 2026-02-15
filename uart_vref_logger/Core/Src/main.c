@@ -35,7 +35,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define VREFINT_MV_TYP 1200u
-#define ADC_MAX 4095u
+#define ADC_MAX        4095u
+
+#define VREFINT_CAL_ADDR ((uint16_t*)0x1FFFF7BAu)
+
 
 /* USER CODE END PD */
 
@@ -50,6 +53,13 @@ ADC_HandleTypeDef hadc1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+static uint32_t vrefint_mv_cal = 1095u;
+static uint8_t vrefint_cal_valid = 1;
+
+//LED
+static uint8_t ld2_load_on = 0;
+static uint32_t ld2_period_ms = 1;
+static uint32_t ld2_last_ms = 0;
 //Stream stats
 static uint32_t st_min_raw = 0xFFFFFFFFu;
 static uint32_t st_max_raw = 0;
@@ -101,6 +111,90 @@ static uint8_t tx_it_byte; // 1-byte IT 송신용 (임시)
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+// === Flash CAL storage (last page) === //
+#define FLASH_PAGE_SIZE_BYTES (1024u)
+#define CAL_MAGIC (0xCA1Bu)
+#define CAL_VERSION (0x001u)
+
+typedef struct {
+	uint16_t magic;
+	uint16_t version;
+	uint16_t vrefint_mv_cal;
+	uint16_t crc;
+}cal_rec_t;
+
+static uint16_t cal_crc16(uint16_t magic, uint16_t version, uint16_t cal) {
+	uint16_t c = (uint16_t)(magic ^ version ^ cal ^ 0x5A5Au);
+	return c;
+}
+
+static uint32_t flash_last_page_addr(void){
+	uint16_t size_kb = *(volatile uint16_t*)0x1FFFF7E0u;
+	uint32_t flash_end = 0x08000000u + ((uint32_t)size_kb * 1024u);
+	return flash_end - FLASH_PAGE_SIZE_BYTES;
+}
+
+static int cal_flash_load(uint32_t *out_cal_mv) {
+	uint32_t addr = flash_last_page_addr();
+	const cal_rec_t *rec = (const cal_rec_t*)addr;
+
+	if(rec->magic != CAL_MAGIC) return 0;
+	if(rec->version != CAL_VERSION) return 0;
+
+	uint16_t crc = cal_crc16(rec->magic, rec->version, rec->vrefint_mv_cal);
+	if(rec->crc != crc) return 0;
+
+	*out_cal_mv = (uint32_t)rec->vrefint_mv_cal;
+	return 1;
+}
+
+static int cal_flash_save(uint32_t cal_mv) {
+	if(cal_mv < 800 || cal_mv > 1600) return 0;
+
+	uint32_t addr = flash_last_page_addr();
+
+	// Erase last page
+	HAL_FLASH_Unlock();
+
+	FLASH_EraseInitTypeDef erase = {0};
+	uint32_t page_error = 0;
+	erase.TypeErase = FLASH_TYPEERASE_PAGES;
+	erase.PageAddress = addr;
+	erase.NbPages = 1;
+
+	if(HAL_FLASHEx_Erase(&erase, &page_error) != HAL_OK) {
+		HAL_FLASH_Lock();
+		return 0;
+	}
+
+	//Program halfwords
+	cal_rec_t rec;
+	rec.magic = CAL_MAGIC;
+	rec.version = CAL_VERSION;
+	rec.vrefint_mv_cal = (uint16_t)cal_mv;
+	rec.crc = cal_crc16(rec.magic, rec.version, rec.vrefint_mv_cal);
+
+	const uint16_t *p = (const uint16_t*)&rec;
+	for(uint32_t i = 0; i < (sizeof(cal_rec_t)/2); i++) {
+		if(HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, addr + (i*2u), p[i]) != HAL_OK) {
+			HAL_FLASH_Lock();
+			return 0;
+		}
+	}
+
+	HAL_FLASH_Lock();
+
+	// Verify
+	cal_rec_t *vr = (cal_rec_t*)addr;
+	if(vr->magic != rec.magic || vr->version != rec.version ||
+			vr->vrefint_mv_cal != rec.vrefint_mv_cal || vr->crc != rec.crc) {
+		return 0;
+	}
+
+	return 1;
+}
+
 static void tx_rb_push(uint8_t b) {
   uint16_t next = (uint16_t)((tx_head + 1) % TX_BUF_SZ);
   if (next == tx_tail) {
@@ -190,9 +284,62 @@ static void uart_print(const char *s) {
 }
 
 static uint32_t calc_vdda_mv(uint32_t vref_raw) {
-  if (vref_raw == 0)
-    return 0;
-  return (VREFINT_MV_TYP * ADC_MAX) / vref_raw;
+  if (vref_raw == 0) return 0;
+  return (vrefint_mv_cal * ADC_MAX) / vref_raw;
+}
+
+static void ld2_load_set(uint8_t on) {
+	ld2_load_on = on ? 1u : 0u;
+	ld2_last_ms = HAL_GetTick();
+
+	if(!ld2_load_on) {
+		HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+	}
+}
+
+static void ld2_load_set_hz(uint32_t hz) {
+	if(hz < 1) hz = 1;
+	if(hz > 2000) hz = 2000;
+	ld2_period_ms = (1000u / hz);
+	if(ld2_period_ms < 1) ld2_period_ms = 1;
+}
+
+static void ld2_load_task(void) {
+	if(!ld2_load_on) return;
+
+	uint32_t now = HAL_GetTick();
+	if((now - ld2_last_ms) >= ld2_period_ms) {
+		ld2_last_ms = now;
+		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+	}
+}
+
+static void vrefint_apply_cal(uint32_t measured_vdda_mv) {
+	if(measured_vdda_mv < 2500 || measured_vdda_mv > 3600) {
+		uart_print("ERR cal range 2500..3600 mV\r\n");
+		return;
+	}
+
+	uint32_t raw = read_vref_raw_avg(32);
+	if(raw == 0) {
+		uart_print("ERR raw=0\r\n");
+		return;
+	}
+
+	uint32_t new_cal = (measured_vdda_mv * raw + (ADC_MAX/2)) / ADC_MAX;
+
+	vrefint_mv_cal = new_cal;
+	vrefint_cal_valid = 1;
+
+	char out[96];
+	uint32_t vdda = calc_vdda_mv(raw);
+	int n = snprintf(out, sizeof(out),
+			"OK cal set: meas=%lu raw=%lu vrefint_mv_cal=%lu => VDDA=%lu\r\n",
+			(unsigned long)measured_vdda_mv,
+			(unsigned long)raw,
+			(unsigned long)vrefint_mv_cal,
+			(unsigned long)vdda);
+	uart_write((uint8_t*)out, (uint16_t)n);
 }
 
 static void cli_handle_line(const char *line) {
@@ -205,7 +352,14 @@ static void cli_handle_line(const char *line) {
                "  rate <ms>\r\n"
                "  stats \r\n"
     		   "  reset stats\r\n"
-    		   "  avg <N>\r\n");
+    		   "  avg <N>\r\n"
+    		   "  ld2 on\r\n"
+    		   "  ld2 off\r\n"
+    		   "  ld2 hz <1..200>\r\n"
+    		   "  cal <mV>\r\n"
+    		   "  cal show\r\n"
+    		   "  cal save\r\n"
+    		   "  cal load\r\n");
 
     return;
   }
@@ -327,9 +481,69 @@ static void cli_handle_line(const char *line) {
 	  return;
   }
 
+  if(strcmp(line, "ld2 on") == 0) {
+	  ld2_load_set(1);
+	  uart_print("OK ld2 load on\r\n");
+	  return;
+  }
+
+  if(strcmp(line, "ld2 off") == 0) {
+	  ld2_load_set(0);
+	  uart_print("OK ld2 load off\r\n");
+	  return;
+  }
+
+  if(strncmp(line, "ld2 hz ", 7) == 0) {
+	  uint32_t hz = (uint32_t)atoi(&line[7]);
+	  if(hz < 1 || hz > 2000) {
+		  uart_print("ERR ld2 hz must be 1..2000\r\n");
+	  } else {
+		  ld2_load_set_hz(hz);
+		  uart_print("OK ld2 hz set\r\n");
+	  }
+	  return;
+  }
+
+  if(strcmp(line, "cal show")==0) {
+	  char out[96];
+	  int n = snprintf(out, sizeof(out),
+			  "vrefint_mv_cal=%lu (used for VDDA calc)\r\n",
+			  (unsigned long)vrefint_mv_cal);
+	  uart_write((uint8_t*)out, (uint16_t)n);
+	  return;
+  }
+
+  if(strcmp(line, "cal save") == 0) {
+	  if(cal_flash_save(vrefint_mv_cal)) uart_print("OK cal saved\r\n");
+	  else uart_print("ERR cal save failed\r\n");
+	  return;
+  }
+
+  if(strcmp(line, "cal load") == 0) {
+	  uint32_t cal_mv;
+	  if(cal_flash_load(&cal_mv)) {
+		  vrefint_mv_cal = cal_mv;
+		  vrefint_cal_valid = 1;
+		  uart_print("OK cal loaded\r\n");
+	  } else {
+		  uart_print("ERR cal not found\r\n");
+	  }
+	  return;
+  }
+
+  if(strncmp(line, "cal ", 4) == 0) {
+	  uint32_t mv = (uint32_t)atoi(&line[4]);
+	  vrefint_apply_cal(mv);
+	  return;
+  }
+
+
+
+
   uart_print("ERR unknown command\r\n");
   return;
 }
+
 
 /* USER CODE END 0 */
 
@@ -371,6 +585,15 @@ int main(void) {
   uart_print(prompt);
   HAL_UART_Receive_IT(&huart2, &rx_xh, 1);
 
+  uint32_t cal_mv;
+  if(cal_flash_load(&cal_mv)) {
+	  vrefint_mv_cal = cal_mv;
+	  vrefint_cal_valid = 1;
+	  uart_print("CAL loaded from flash\r\n");
+  } else {
+	  uart_print("CAL not found (use cal <mV> then cal save)\r\n");
+  }
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -382,6 +605,8 @@ int main(void) {
       cli_handle_line(cli_buf);
       uart_print("> ");
     }
+
+    ld2_load_task();
 
     if (stream_on) {
       uint32_t now = HAL_GetTick();
@@ -478,6 +703,8 @@ static void MX_ADC1_Init(void) {
   if (HAL_ADC_Init(&hadc1) != HAL_OK) {
     Error_Handler();
   }
+
+  ADC1->CR2 |= ADC_CR2_TSVREFE;
 
   /** Configure Regular Channel
    */

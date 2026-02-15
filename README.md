@@ -43,6 +43,13 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | `stats` | 스트리밍 통계 정보 출력 (시퀀스, 라인 수, TX 버퍼, RAW/VDDA min/max/avg) |
 | `reset stats` | 통계 데이터 초기화 |
 | `avg <N>` | N회 샘플링 후 RAW/VDDA의 min/max/avg 출력 (1~500) |
+| `ld2 on` | LD2 LED 부하 테스트 모드 켜기 (토글 동작) |
+| `ld2 off` | LD2 LED 부하 테스트 모드 끄기 |
+| `ld2 hz <1..2000>` | LD2 LED 토글 주파수 설정 (1~2000Hz) |
+| `cal <mV>` | 실측 VDDA 전압으로 캘리브레이션 수행 (2500~3600mV) |
+| `cal show` | 현재 사용 중인 캘리브레이션 값 표시 |
+| `cal save` | 현재 캘리브레이션 값을 Flash에 저장 |
+| `cal load` | Flash에서 캘리브레이션 값 불러오기 |
 
 ### 사용 예시
 
@@ -278,6 +285,18 @@ uart_vref_logger/
 ```
 
 ## 📝 변경 이력
+
+### 2026-02-16
+- **[Feature]** VREFINT 캘리브레이션 시스템 추가
+  - Flash 메모리를 이용한 캘리브레이션 값 영구 저장 기능
+  - 부팅 시 자동 로드 (`CAL loaded from flash` 메시지)
+  - CLI 명령어: `cal <mV>`, `cal show`, `cal save`, `cal load`
+  - 정밀한 VDDA 측정을 위한 사용자 정의 캘리브레이션 지원 (2500~3600mV 범위)
+  - CRC16 검증을 통한 데이터 무결성 보장
+- **[Feature]** LD2 LED 부하 테스트 기능 추가
+  - 전원 안정성 테스트를 위한 LED 토글 모드
+  - CLI 명령어: `ld2 on`, `ld2 off`, `ld2 hz <1..2000>`
+  - 가변 주파수 지원 (1~2000Hz)으로 다양한 부하 시뮬레이션 가능
 
 ### 2026-02-15
 - **[Feature]** 통계 추적 기능 추가

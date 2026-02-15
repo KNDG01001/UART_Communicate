@@ -3,6 +3,8 @@
 	<item key="hasShownOverlayPopupBefore" value="true"/>
 	<item key="replaceBarOpen" value="false"/>
 	<list key="searchhistory">
+		<item value="str_min"/>
+		<item value="cli_handle_line()"/>
 		<item value="HAL_UART_Transmit"/>
 		<item value="uart_write"/>
 		<item value="HAL_UART_Tx"/>
@@ -16,6 +18,5 @@
 		<item value="rate"/>
 		<item value="HAL_UART_Receive_IT(&amp;huart2, &amp;rx_xh, 1);"/>
 		<item value="bakc"/>
-		<item value="main"/>
 	</list>
 </section>
