@@ -50,6 +50,9 @@ STM32 Nucleo-F103RB 보드를 사용하여 내부 기준 전압(VREF)을 ADC로 
 | `cal show` | 현재 사용 중인 캘리브레이션 값 표시 |
 | `cal save` | 현재 캘리브레이션 값을 Flash에 저장 |
 | `cal load` | Flash에서 캘리브레이션 값 불러오기 |
+| `cal dump` | Flash에 저장된 캘리브레이션 레코드 원시 값 덤프 (magic, version, crc 등) |
+| `cal erase` | Flash 캘리브레이션 페이지 삭제 |
+| `status` | 현재 시스템 전체 상태 출력 (stream, tx, ld2, cal, raw, vdda) |
 
 ### 사용 예시
 
@@ -64,6 +67,16 @@ Commands:
   stats
   reset stats
   avg <N>
+  ld2 on
+  ld2 off
+  ld2 hz <1..2000>
+  cal <mV>
+  cal show
+  cal save
+  cal load
+  cal dump
+  cal erase
+  status
 > adc read
 VREF_RAW=1492 VDDA_mV=3300
 > rate 500
@@ -84,6 +97,13 @@ VDDA:  cnt=3 min=3299 max=3301 avg=3300
 AVG N=10
 RAW:  min=1490 max=1494 avg=1492
 VDDA: min=3298 max=3302 avg=3300
+> status
+STATUS
+ stream_on=0 rate_ms=1000 seq=0 lines=0
+ tx_pending=0 tx_ovf=0
+ ld2_on=0 ld2_period_ms=1
+ cal_valid=1 vrefint_mv_cal=1095
+ raw=1492 vdda=3300
 ```
 
 ## 🚀 빌드 및 실행
@@ -285,6 +305,13 @@ uart_vref_logger/
 ```
 
 ## 📝 변경 이력
+
+### 2026-02-23
+- **[Feature]** 새로운 CLI 명령어 추가
+  - `cal dump`: Flash 캘리브레이션 레코드 원시 값 덤프 (magic, version, crc 등)
+  - `cal erase`: Flash 캘리브레이션 페이지 삭제
+  - `status`: 시스템 전체 상태 요약 출력 (stream, tx, ld2, cal, raw, vdda)
+- **[Fix]** `help` 출력에서 `ld2 hz` 범위 표기 수정 (`1..200` → `1..2000`)
 
 ### 2026-02-16
 - **[Feature]** VREFINT 캘리브레이션 시스템 추가
