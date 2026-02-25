@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cal_store.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,7 +55,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 static uint32_t vrefint_mv_cal = 1095u;
-static uint8_t vrefint_cal_valid = 1;
+static uint8_t vrefint_cal_valid = 0;
 
 //LED
 static uint8_t ld2_load_on = 0;
@@ -116,84 +117,6 @@ static uint8_t tx_it_byte; // 1-byte IT 송신용 (임시)
 #define FLASH_PAGE_SIZE_BYTES (1024u)
 #define CAL_MAGIC (0xCA1Bu)
 #define CAL_VERSION (0x001u)
-
-typedef struct {
-	uint16_t magic;
-	uint16_t version;
-	uint16_t vrefint_mv_cal;
-	uint16_t crc;
-}cal_rec_t;
-
-static uint16_t cal_crc16(uint16_t magic, uint16_t version, uint16_t cal) {
-	uint16_t c = (uint16_t)(magic ^ version ^ cal ^ 0x5A5Au);
-	return c;
-}
-
-static uint32_t flash_last_page_addr(void){
-	uint16_t size_kb = *(volatile uint16_t*)0x1FFFF7E0u;
-	uint32_t flash_end = 0x08000000u + ((uint32_t)size_kb * 1024u);
-	return flash_end - FLASH_PAGE_SIZE_BYTES;
-}
-
-static int cal_flash_load(uint32_t *out_cal_mv) {
-	uint32_t addr = flash_last_page_addr();
-	const cal_rec_t *rec = (const cal_rec_t*)addr;
-
-	if(rec->magic != CAL_MAGIC) return 0;
-	if(rec->version != CAL_VERSION) return 0;
-
-	uint16_t crc = cal_crc16(rec->magic, rec->version, rec->vrefint_mv_cal);
-	if(rec->crc != crc) return 0;
-
-	*out_cal_mv = (uint32_t)rec->vrefint_mv_cal;
-	return 1;
-}
-
-static int cal_flash_save(uint32_t cal_mv) {
-	if(cal_mv < 800 || cal_mv > 1600) return 0;
-
-	uint32_t addr = flash_last_page_addr();
-
-	// Erase last page
-	HAL_FLASH_Unlock();
-
-	FLASH_EraseInitTypeDef erase = {0};
-	uint32_t page_error = 0;
-	erase.TypeErase = FLASH_TYPEERASE_PAGES;
-	erase.PageAddress = addr;
-	erase.NbPages = 1;
-
-	if(HAL_FLASHEx_Erase(&erase, &page_error) != HAL_OK) {
-		HAL_FLASH_Lock();
-		return 0;
-	}
-
-	//Program halfwords
-	cal_rec_t rec;
-	rec.magic = CAL_MAGIC;
-	rec.version = CAL_VERSION;
-	rec.vrefint_mv_cal = (uint16_t)cal_mv;
-	rec.crc = cal_crc16(rec.magic, rec.version, rec.vrefint_mv_cal);
-
-	const uint16_t *p = (const uint16_t*)&rec;
-	for(uint32_t i = 0; i < (sizeof(cal_rec_t)/2); i++) {
-		if(HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, addr + (i*2u), p[i]) != HAL_OK) {
-			HAL_FLASH_Lock();
-			return 0;
-		}
-	}
-
-	HAL_FLASH_Lock();
-
-	// Verify
-	cal_rec_t *vr = (cal_rec_t*)addr;
-	if(vr->magic != rec.magic || vr->version != rec.version ||
-			vr->vrefint_mv_cal != rec.vrefint_mv_cal || vr->crc != rec.crc) {
-		return 0;
-	}
-
-	return 1;
-}
 
 static void tx_rb_push(uint8_t b) {
   uint16_t next = (uint16_t)((tx_head + 1) % TX_BUF_SZ);
@@ -342,6 +265,35 @@ static void vrefint_apply_cal(uint32_t measured_vdda_mv) {
 	uart_write((uint8_t*)out, (uint16_t)n);
 }
 
+static void print_status(void) {
+	uint32_t raw = read_vref_raw_avg(16);
+	uint32_t vdda = calc_vdda_mv(raw);
+	uint32_t pending = tx_rb_count();
+
+	char out[320];
+	int n = snprintf(out, sizeof(out),
+			"STATUS\r\n"
+			" stream_on=%lu rate_ms=%lu seq=%lu lines=%lu\r\n"
+			" tx_pending=%u tx_ovf=%lu\r\n"
+			" ld2_on=%lu ld2_period_ms=%lu\r\n"
+			" cal_valid=%lu vrefint_mv_cal=%lu\r\n"
+			" raw=%lu vdda=%lu\r\n",
+			(unsigned long)stream_on,
+			(unsigned long)stream_period_ms,
+			(unsigned long)stream_seq,
+			(unsigned long)stream_lines,
+			(unsigned)pending,
+			(unsigned long)tx_ovf,
+			(unsigned long)ld2_load_on,
+			(unsigned long)ld2_period_ms,
+			(unsigned long)vrefint_cal_valid,
+			(unsigned long)vrefint_mv_cal,
+			(unsigned long)raw,
+			(unsigned long)vdda);
+
+	uart_write((uint8_t*)out, (uint16_t)n);
+}
+
 static void cli_handle_line(const char *line) {
   if (strcmp(line, "help") == 0) {
     uart_print("Commands: \r\n"
@@ -355,11 +307,14 @@ static void cli_handle_line(const char *line) {
     		   "  avg <N>\r\n"
     		   "  ld2 on\r\n"
     		   "  ld2 off\r\n"
-    		   "  ld2 hz <1..200>\r\n"
+    		   "  ld2 hz <1..2000>\r\n"
     		   "  cal <mV>\r\n"
     		   "  cal show\r\n"
     		   "  cal save\r\n"
-    		   "  cal load\r\n");
+    		   "  cal load\r\n"
+    		   "  cal dump\r\n"
+    		   "  status\r\n"
+    		   "  cal erase\r\n");
 
     return;
   }
@@ -505,23 +460,43 @@ static void cli_handle_line(const char *line) {
   }
 
   if(strcmp(line, "cal show")==0) {
-	  char out[96];
+	  uint32_t raw = read_vref_raw_avg(16);
+	  uint32_t vdda = calc_vdda_mv(raw);
+
+	  char out[160];
 	  int n = snprintf(out, sizeof(out),
-			  "vrefint_mv_cal=%lu (used for VDDA calc)\r\n",
-			  (unsigned long)vrefint_mv_cal);
+			  "cal_valid=%lu vrefint_mv_cal=%lu raw=%lu vdda=%lu\r\n",
+			  (unsigned long)vrefint_cal_valid,
+			  (unsigned long)vrefint_mv_cal,
+			  (unsigned long)raw,
+			  (unsigned long)vdda);
+
 	  uart_write((uint8_t*)out, (uint16_t)n);
 	  return;
   }
 
   if(strcmp(line, "cal save") == 0) {
-	  if(cal_flash_save(vrefint_mv_cal)) uart_print("OK cal saved\r\n");
-	  else uart_print("ERR cal save failed\r\n");
+	  cal_store_status_t st = cal_store_save(vrefint_mv_cal);
+
+	  if(st == CAL_STORE_OK) {
+		  uart_print("OK cal saved\r\n");
+	  } else if (st == CAL_STORE_ERR_RANGE) {
+		  uart_print("ERR cal save rage\r\n");
+	  } else if (st == CAL_STORE_ERR_FLASH_ERASE) {
+		  uart_print("ERR cal save erase\r\n");
+	  } else if (st == CAL_STORE_ERR_FLASH_PROG) {
+		  uart_print("ERR cal save prog\r\n");
+	  } else if (st == CAL_STORE_ERR_VERIFY) {
+		  uart_print("ERR cal save verify\r\n");
+	  } else {
+		  uart_print("ERR cal save failed\r\n");
+	  }
 	  return;
   }
 
   if(strcmp(line, "cal load") == 0) {
 	  uint32_t cal_mv;
-	  if(cal_flash_load(&cal_mv)) {
+	  if(cal_store_load(&cal_mv)) {
 		  vrefint_mv_cal = cal_mv;
 		  vrefint_cal_valid = 1;
 		  uart_print("OK cal loaded\r\n");
@@ -531,14 +506,40 @@ static void cli_handle_line(const char *line) {
 	  return;
   }
 
+  if(strcmp(line, "cal dump") == 0) {
+	  cal_rec_t rec;
+	  cal_store_read_raw(&rec);
+
+	  uint16_t crc_calc = cal_store_crc16(rec.magic, rec.version, rec.vrefint_mv_cal);
+
+	  char out[180];
+	  int n = snprintf(out, sizeof(out),
+			  "CAL_DUMP addr=0x%08lX\r\n"
+			  " magic=0x%04X version=0x%04X cal=%u crc=0x%04X crc_calc=0x%04X\r\n",
+			  (unsigned long)cal_store_get_last_page_addr(),
+			  rec.magic, rec.version, rec.vrefint_mv_cal, rec.crc, crc_calc);
+
+	  uart_write((uint8_t*)out, (uint16_t)n);
+	  return;
+  }
+
+  if(strcmp(line, "cal erase") == 0) {
+	  if(cal_store_erase()) uart_print("OK cal erased (flash page)\r\n");
+	  else uart_print("ERR cal erase failed\r\n");
+	  return;
+  }
+
+
   if(strncmp(line, "cal ", 4) == 0) {
 	  uint32_t mv = (uint32_t)atoi(&line[4]);
 	  vrefint_apply_cal(mv);
 	  return;
   }
 
-
-
+  if(strcmp(line, "status")==0) {
+	  print_status();
+	  return;
+  }
 
   uart_print("ERR unknown command\r\n");
   return;
@@ -586,7 +587,7 @@ int main(void) {
   HAL_UART_Receive_IT(&huart2, &rx_xh, 1);
 
   uint32_t cal_mv;
-  if(cal_flash_load(&cal_mv)) {
+  if(cal_store_load(&cal_mv)) {
 	  vrefint_mv_cal = cal_mv;
 	  vrefint_cal_valid = 1;
 	  uart_print("CAL loaded from flash\r\n");

@@ -306,6 +306,12 @@ uart_vref_logger/
 
 ## 📝 변경 이력
 
+### 2026-02-26
+- **[Refactor]** Flash 캘리브레이션 저장 로직을 별도 모듈로 분리
+  - `cal_store.c` / `cal_store.h` 신규 파일로 캘리브레이션 저장·로드·CRC 검증 기능 분리
+  - `main.c`에서 캘리브레이션 Flash 처리 코드 제거 후 `cal_store` API 호출로 대체
+- **[Fix]** `help` 명령어 출력의 `ld2 hz` 범위 표기 오류 수정 (`<1..200>` → `<1..2000>`)
+
 ### 2026-02-23
 - **[Feature]** 새로운 CLI 명령어 추가
   - `cal dump`: Flash 캘리브레이션 레코드 원시 값 덤프 (magic, version, crc 등)
